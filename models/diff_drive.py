@@ -21,6 +21,13 @@ class DiffDrive(Model):
         # Descriptions
         self.descriptions = {'states': ['$p_x$', '$p_y$', '$\theta$'], 'controls': ['V', '\phi']}
 
+        # Beacon location
+        self.beacon = np.array([[-10, -10]]).T
+
+        # Measurement model
+        self.meas_model = {'range': 1, 'bearing': 1, 'rel_bearing': 0}
+        self.reset()
+
     def prop_dynamics(self, x, u, noise=True):
         x_n = x.copy()
         v, om = u[0, :], u[1, :]
@@ -34,14 +41,33 @@ class DiffDrive(Model):
         return x_n
 
     def get_measurement(self, x, noise=True):
-        y = np.zeros((self.m, x.shape[1]))
-        y[0, :] = np.linalg.norm(x[0:2, :], axis=0)
-        y[1, :] = x[2, :]
+        # Extract states
+        px, py, th = x
 
+        # Calculate difference vector and magnitude
+        diff = x[0:2, :] - self.beacon
+        mag = np.linalg.norm(self.beacon - x[0:2, :], axis=0, keepdims=True)
+        mag[np.isclose(mag, 0)] = 1e-6
+
+        # Append measurements according to active model
+        y = []
+        if self.meas_model['range']:
+            rho = mag
+            y.append(rho)
+
+        if self.meas_model['bearing']:
+            phi = np.arctan2(diff[1:2, :], diff[0:1, :])
+            y.append(phi)
+
+        if self.meas_model['rel_bearing']:
+            phi = np.arctan2(diff[1:2, :], diff[0:1, :]) - x[2:3, :]
+            y.append(phi)
+
+        y = np.vstack(y)
+
+        assert y.shape == (self.m, x.shape[1])
         if noise:
             y += self.meas_noise()
-        if self.m == 1 and x.shape[1] <= 1:
-            y = y[0, 0]
         return y
 
     def A(self, x, u):
@@ -58,4 +84,6 @@ class DiffDrive(Model):
                          [0, 0, 1]])
 
     def reset(self):
-        pass
+        m = sum([val for val in self.meas_model.values()])
+        self.m = m
+        self.R = 0.1*np.eye(self.m)*0.001
