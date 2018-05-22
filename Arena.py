@@ -25,6 +25,9 @@ class Arena:
                              lambda t: np.array([0.5, -0.2]),
                              lambda t: np.array([np.sin(t), 0.5]).T]
 
+        # Drop rate: probability of the robot not reporting a measurement
+        self.drop_rate = [0.1, 0.2, 0]
+
         # Model responsible for the dynamics and measurements
         self.model = model
 
@@ -37,17 +40,19 @@ class Arena:
         ctrl = [law(t) for law in self.control_laws]
         return np.array(ctrl).T
 
-    def add_robot(self, x0, control_law):
+    def add_robot(self, x0, control_law, drop_rate=0):
         """
         Adds a robot to the arena
         :param x0: initial states (any container than can be converted into a numpy array)
         :param control_law: function handle that accepts a single value
             and returns a 1D numpy array of k control values
+        :param drop_rate: float from 0 to 1 that determines the probability of dropping the measurement
         """
         if len(x0) == self.model.n:
             x0 = np.array(x0).reshape(-1, 1)
             self.robots = np.hstack([self.robots, x0])
             self.control_laws.append(control_law)
+            self.drop_rate.append(drop_rate)
         else:
             raise Warning("Robot state doesn't match")
 
@@ -57,10 +62,11 @@ class Arena:
         :param idx: index of the robot. Can be an interable container
         """
         if not isinstance(idx, list):
-            idx = [idx,]
+            idx = [idx, ]
         for i in idx:
             self.robots = np.delete(self.robots, i, 1)
             del self.control_laws[i]
+            del self.drop_rate[i]
 
     def check_bounds(self):
         """
@@ -90,7 +96,10 @@ class Arena:
         :return: m x r numpy array of measurements (
             m is the number of measurements, r is the number of robots)
         """
-        return self.model.get_measurement(self.robots)
+        z = self.model.get_measurement(self.robots)
+        measured = np.random.binomial(1, p=1-np.array(self.drop_rate))
+        z = z[:, np.where(measured)[0]]
+        return z
 
     def init_plot(self):
         """
