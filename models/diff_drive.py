@@ -12,8 +12,8 @@ class DiffDrive(Model):
         self.dt = dt  # Sample time
 
         # Noise
-        self.Q = 0.00001 * np.diag([1, 1, 1]) * self.dt
-        self.R = 0.1
+        self.Q = 0.1 * np.diag([1, 1, 1]) * self.dt
+        self.R = 1
 
         # Initial State
         self.x0 = np.array([[0., 0., 0.]]).T

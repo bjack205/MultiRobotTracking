@@ -1,6 +1,8 @@
 import numpy as np
 from models import Model, DiffDrive
 import matplotlib.pyplot as plt
+from sims.sim_classes import error_ellipse
+import pickle
 
 
 class Arena:
@@ -15,21 +17,29 @@ class Arena:
 
         # Initial robots states
         # TODO: make this an argument or read from file
-        self.robots = np.array([[-2, -2, np.radians(0)],
-                                [2, -2, np.radians(30)],
-                                [3, 0, np.radians(90)]]).T
+        self.robots = np.array([[0, 0, np.radians(0)],
+                                [1, 0, np.radians(0)],
+                                [0, 1, np.radians(90)]]).T
 
         # Control laws (defines how each robot moves, as a function of time)
         # each element of the list is a function that returns 1D numpy array
-        self.control_laws = [lambda t: np.array([1, .2]),
-                             lambda t: np.array([0.5, -0.2]),
-                             lambda t: np.array([np.sin(t), 0.5]).T]
+        self.control_laws = [lambda t: np.array([np.cos(0.1*t), np.sin(0.1*t)]),
+                             lambda t: np.array([-np.cos(0.2*t), np.sin(0.2*t)]),
+                             lambda t: np.array([np.cos(0.1*t), np.sin(0.2*t)])]
 
         # Drop rate: probability of the robot not reporting a measurement
-        self.drop_rate = [0.1, 0.2, 0]
+        self.drop_rate = [0.0, 0.0, 0.0]
 
         # Model responsible for the dynamics and measurements
         self.model = model
+
+        self.initial_state = self.robots.copy()
+
+    def num_robots(self):
+        return self.robots.shape[1]
+
+    def reset(self):
+        self.robots = self.initial_state
 
     def get_controls(self, t):
         """
@@ -88,6 +98,7 @@ class Arena:
         """
         u = self.get_controls(t)
         self.robots = self.model.prop_dynamics(self.robots, u)
+        return self.robots
 
     def get_measurements(self, t):
         """
@@ -109,22 +120,40 @@ class Arena:
         self.ax = plt.axes(xlim=self.bounds['x'], ylim=self.bounds['y'])
         self.ax.set_aspect('equal')
         self.fig.canvas.draw()
-        x, y, _ = self.robots
+        x, y, *_ = self.robots
         self.state_plot = plt.plot(x, y, 'ko')[0]
+        self.estimate_plot = plt.plot(x, y, 'r.')[0]
+        self.ellipses = [plt.plot(x, y, 'r--')[0] for i in range(self.num_robots())]
         plt.grid()
 
-    def update_plot(self):
+    def update_plot(self, mu=None, sigma=None):
         """
         Updates the plot (quickly)
         """
-        x,y,_ = self.robots
+        x,y,*_ = self.robots
         self.state_plot.set_data(x, y)
+        if mu is not None:
+            g = -1
+            mu_g = mu[:, g]
+            mu_g = mu_g.reshape(-1, self.model.n).T
+            mu_x, mu_y, *_ = mu_g
+            self.estimate_plot.set_data(mu_x, mu_y)
+            if sigma is not None:
+                sigma_g = sigma[:, :, g]
+                for i in range(self.num_robots()):
+                    ellipse = error_ellipse(mu_g[:, i], sigma_g[2*i:2*i+2, 2*i:2*i+2])
+                    self.ellipses[i].set_data(ellipse[0, :], ellipse[1, :])
+
+        else:
+            self.estimate_plot.set_data(x*0, y*0)
+            self.ellipses.set_data(x*0, y*0)
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
         plt.pause(1e-10)
 
 
 if __name__ == "__main__":
+    np.random.seed(1)
     dt = 1e-3
     model = DiffDrive(dt)
     model.meas_model['range'] = 0
@@ -141,10 +170,6 @@ if __name__ == "__main__":
             a.update_plot()
             z = a.get_measurements(t)
             print(np.degrees(z))
-        if np.isclose(t, 5):
-            a.add_robot([0, 0, 0], lambda t: np.array([np.sin(t)*2, 2*np.cos(t)]))
-        if np.isclose(t, 10):
-            a.del_robot(1)
 
 
 

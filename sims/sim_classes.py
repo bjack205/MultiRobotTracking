@@ -3,26 +3,6 @@ import os
 import time as time_mod
 
 
-class Filter:
-    def __init__(self):
-        pass
-
-    def update(self, u, z, model):
-        raise NotImplementedError
-
-    def get_params(self):
-        """
-        :return: dictionary of filter parameters
-        """
-        raise NotImplementedError
-
-    def reset(self):
-        raise NotImplementedError
-
-    def plot(self, logs, description):
-        raise NotImplementedError
-
-
 class Controller:
     def __init__(self):
         pass
@@ -35,14 +15,13 @@ class Controller:
 
 
 class Simulator:
-    def __init__(self, model, filtr, ctrl):
+    def __init__(self, arena, filtr):
         # Sub-classes
-        self.model = model
+        self.arena = arena
         self.filter = filtr
-        self.controller = ctrl
 
         # Sync Information
-        self.dt = model.dt
+        self.dt = arena.model.dt
 
         # Simulation properties
         self.sim_time = 20
@@ -55,57 +34,62 @@ class Simulator:
         self.logs = None
         self.save_file = 'sim_data'
 
-        # Checks
-        self.class_checks()
-
     def step(self, x, t):
         # Simulate dynamics
-        u = self.controller.get_control(x, t)
-        x_n = self.model.prop_dynamics(x, u)
-        z = self.model.get_measurement(x_n)
-        self.filter.update(u, z, self.model)
+        u = self.arena.get_controls(t)
+        x_n = self.arena.propagate_dynamics(t)
+        z = self.arena.get_measurements(t)
+        self.filter.update(u, z, self.arena.model)
         return x_n, u
 
     def run_sim(self):
         tic = time_mod.time()
         self.reset()
-        x = self.model.initial_state()
-        u = self.controller.get_control(x, 0)
+        x = self.arena.initial_state
+        u = self.arena.get_controls(0)
 
         time = np.arange(0, self.sim_time + self.dt, self.dt)
         self.init_logs(len(time))
+        self.arena.init_plot()
 
         for i, t in enumerate(time):
             self.log_data(x, u, i)
             x, u = self.step(x, t)
 
             if (t/self.sim_info) % 1 == 0:
-                print("Sim Time: {}/{} sec".format(t, self.sim_time))
+                print("Sim Time: {}/{} sec".format(np.round(t, 2), np.round(self.sim_time, 2)))
+                self.arena.update_plot(mu=self.get_mu(i), sigma=self.get_sigma(i))
 
-                try:
-                    self.filter.plot_particles(self.logs, i)
-                except AttributeError:
-                    pass
         t_elapse = time_mod.time() - tic
         print("Simulation Finished in {} seconds".format(t_elapse))
 
         if self.save_history:
             self.logs['time'] = time
-            np.savez(self.save_file, logs=self.logs, description=self.model.descriptions)
+            np.savez(self.save_file, logs=self.logs)
             print("Data saved to %s.npz" % self.save_file)
+
+    def get_mu(self, i):
+        if 'mu' in self.logs:
+            return self.logs['mu'][i, ...]
+
+    def get_sigma(self, i):
+        if 'sigma' in self.logs:
+            return self.logs['sigma'][i, ...]
 
     def log_data(self, x, u, idx):
         if self.save_history:
-            self.logs['state'][idx, :] = x.flatten()
-            self.logs['control'][idx, :] = u.flatten()
+            self.logs['state'][idx, :] = x
+            self.logs['control'][idx, :] = u
             for param, val in self.filter.get_params().items():
                 self.logs[param][idx, ...] = val
 
     def init_logs(self, N):
         if self.save_history:
             self.logs = {}
-            self.logs['state'] = np.zeros([N, self.model.n])
-            self.logs['control'] = np.zeros([N, self.model.k])
+            x0 = self.arena.initial_state
+            u0 = self.arena.get_controls(0)
+            self.logs['state'] = np.zeros((N,) + x0.shape)
+            self.logs['control'] = np.zeros((N,) + u0.shape)
             for param, val in self.filter.get_params().items():
                 if type(val) is np.ndarray:
                     self.logs[param] = np.zeros((N,) + val.shape)
@@ -114,36 +98,33 @@ class Simulator:
                 if type(val) in (str, int, float):
                     self.logs[param] = np.zeros(N)
 
+    def get_logs(self):
+        if self.logs is None and os.path.exists(self.save_file + '.npz'):
+            data = np.load(self.save_file + '.npz')
+            self.logs = data['logs'].item()
+        return self.logs
+
     def gen_plots(self):
         if self.logs is None and os.path.exists(self.save_file + '.npz'):
             data = np.load(self.save_file + '.npz')
             self.logs = data['logs'].item()
         self.filter.plot(self.logs, self.model.descriptions)
 
-    def class_checks(self):
-        n = self.model.n
-        m = self.model.m
-        k = self.model.k
-        x0 = self.model.initial_state()
-        assert x0.shape == (n, 1)
-        if m == 1:
-            assert type(self.model.get_measurement(x0)) is np.float64
-        else:
-            assert self.model.get_measurement(x0).shape == (m, 1), \
-                "Mismach measurement: {} vs {}".format(self.model.get_measurement(x0).shape, (m,1))
-        if k == 1:
-            assert type(self.controller.get_control(x0, 0)) == np.float64
-        else:
-            assert self.controller.get_control(x0, 0).shape == (k, 1), \
-                "Mismatch control size: {} vs {}".format(self.controller.get_control(x0, 0).shape, (k, 1))
-
-        assert x0.dtype == np.float, 'x0 data type is {}'.format(x0)
-        assert len(self.model.descriptions['states']) > 0, "Fill in model descriptions"
 
     def reset(self):
-        self.model.reset()
+        self.arena.reset()
         self.filter.reset()
-        self.controller.reset()
 
 
+def error_ellipse(mu, sigma, p=0.95):
+    mu = mu.reshape(-1, 1)
+    eta = 1/(2*np.pi*np.sqrt(np.linalg.det(sigma)))
+    eps = (1-p)*eta
+    alpha = -2*np.log(eps/eta)
 
+    E = np.linalg.inv(sigma)/alpha
+    R = np.linalg.cholesky(E)
+    t = np.linspace(0, 2*np.pi, 100)
+    z = np.vstack([np.cos(t), np.sin(t)])
+    ellipse = np.linalg.solve(R, z) + mu
+    return ellipse

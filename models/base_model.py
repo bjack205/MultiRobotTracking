@@ -33,8 +33,8 @@ class Model:
     def process_noise(self, m=1):
         return np.random.multivariate_normal(np.zeros([self.n]), self.Q, m).reshape((self.n, -1))
 
-    def meas_noise(self):
+    def meas_noise(self, m=1):
         if self.m > 1:
-            return np.random.multivariate_normal(np.zeros(self.m), self.R).reshape((self.m, 1))
+            return np.random.multivariate_normal(np.zeros(self.m), self.R, m).reshape((self.m, -1))
         else:
-            return np.random.normal(0, np.sqrt(self.R))
+            return np.random.normal(0, np.sqrt(self.R), m)
