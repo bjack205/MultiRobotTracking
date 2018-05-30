@@ -6,6 +6,10 @@ import itertools
 from scipy.stats import multivariate_normal
 
 
+def is_psd(A):
+    return np.all(np.linalg.eigvals(A) > 0)
+
+
 class MHKF(Filter):
 
     def __init__(self, model):
@@ -78,7 +82,7 @@ class MHKF(Filter):
                 C_j = C[idx, :]
 
                 # Kalman Filter Update
-                K = sigma_k.dot(C.T).dot(np.linalg.inv(C.dot(sigma_k).dot(C.T) + R))
+                K = sigma_k.dot(C_j.T).dot(np.linalg.inv(C_j.dot(sigma_k).dot(C_j.T) + R))
                 mu_t1t1[:, i] = mu_k + K.dot(y - C_j.dot(mu_k))
                 sigma_t1t1[:, :, i] = sigma_k - K.dot(C_j).dot(sigma_k)
 
