@@ -141,7 +141,7 @@ class Arena:
             if sigma is not None:
                 sigma_g = sigma[:, :, g]
                 for i in range(self.num_robots()):
-                    ellipse = error_ellipse(mu_g[:, i], sigma_g[2*i:2*i+2, 2*i:2*i+2])
+                    ellipse = error_ellipse(mu_g[:2, i], sigma_g[2*i:2*i+2, 2*i:2*i+2])
                     self.ellipses[i].set_data(ellipse[0, :], ellipse[1, :])
 
         else:
