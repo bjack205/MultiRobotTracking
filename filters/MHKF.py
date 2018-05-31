@@ -12,18 +12,21 @@ def is_psd(A):
 
 class MHKF(Filter):
 
-    def __init__(self, model):
+    def __init__(self, model, mu0=None):
         super().__init__()
-        self.nr = 3  # number of robots
-        self.n = model.n*self.nr  # number of states
-        self.m = model.m*self.nr  # number of measurements
+        self.K = 3  # number of robots
+        self.n = model.n*self.K  # number of states
+        self.m = model.m*self.K  # number of measurements
         self.Ng = 3  # Number of Gaussians to keep
-        self.L = factorial(self.nr)
+        self.L = factorial(self.K)
         self.M = 1
 
-        self.mu0 = np.zeros((self.n, self.nr))
-        self.mu0[:, 0] = [0, 0, 0, 1, 1, 0]
-        self.sigma0 = np.repeat(np.eye(self.n)[:, :, np.newaxis], self.nr, axis=2)
+        if mu0 is None:
+            self.mu0 = np.zeros((self.n, self.Ng))
+        else:
+            self.mu0 = np.repeat(mu0, self.K, 1)
+            self.mu0 += np.random.randn(*self.mu0.shape)
+        self.sigma0 = np.repeat(np.eye(self.n)[:, :, np.newaxis], self.K, axis=2)
         self.alpha0 = np.ones(self.Ng)/self.Ng
 
         self.mu = self.mu0.copy()
@@ -46,7 +49,7 @@ class MHKF(Filter):
             for j in range(self.M):
                 k = i*self.M + j
                 mu_i = self.mu[:, i].reshape(-1, model.n).T
-                A_ij = [model.A(mu_i[:, k], u[:, k]) for k in range(self.nr)]
+                A_ij = [model.A(mu_i[:, k], u[:, k]) for k in range(self.K)]
                 A_ij = block_diag(*A_ij)
                 Q = block_diag(model.Q, model.Q, model.Q)
 
@@ -62,7 +65,7 @@ class MHKF(Filter):
         alpha_t1t1 = np.zeros((MN*self.L))
 
         n = model.n
-        nr = self.nr
+        nr = self.K
         inds = np.array([list(range(n * i, n * i + n)) for i in range(nr)])
 
         for k in range(MN):
@@ -74,16 +77,22 @@ class MHKF(Filter):
             C = block_diag(*C)
             R = [model.R for i in range(nr)]
             R = block_diag(*R)
-            perm = itertools.permutations(range(self.nr))
+
+            # Expected Measurements
+            yhat = model.get_measurement(mu_k1, noise=False)
+
+            # Loop over all permutations of assignments
+            perm = itertools.permutations(range(self.K))
             for j, p in enumerate(perm):
                 i = k*self.L + j
-                # Permute C and R matrix
+                # Permute C matrix and measurements
                 idx = inds[p, :].flatten()
-                C_j = C[idx, :]
+                C_j = C[:, idx]
+                yhat_j = yhat[:, p].T.flatten()
 
                 # Kalman Filter Update
                 K = sigma_k.dot(C_j.T).dot(np.linalg.inv(C_j.dot(sigma_k).dot(C_j.T) + R))
-                mu_t1t1[:, i] = mu_k + K.dot(y - C_j.dot(mu_k))
+                mu_t1t1[:, i] = mu_k + K.dot(y - yhat_j)
                 sigma_t1t1[:, :, i] = sigma_k - K.dot(C_j).dot(sigma_k)
 
                 # Measurement posterior
