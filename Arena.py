@@ -124,6 +124,11 @@ class Arena:
         self.state_plot = plt.plot(x, y, 'ko')[0]
         self.estimate_plot = plt.plot(x, y, 'r.')[0]
         self.ellipses = [plt.plot(x, y, 'r--')[0] for i in range(self.num_robots())]
+        try:
+            for b in self.model.beacons:
+                plt.plot(b[0], b[1], 'bo', markersize=30)
+        except AttributeError:
+            pass
         plt.grid()
 
     def update_plot(self, mu=None, sigma=None):

@@ -96,7 +96,7 @@ if __name__ == '__main__':
 
     # Initialize Simulator
     sim = Simulator(arena, filter)
-    sim.sim_time = 10
+    sim.sim_time = 25
     sim.sim_info = 0.1
     sim.run_sim()
     # sim.gen_plots()
