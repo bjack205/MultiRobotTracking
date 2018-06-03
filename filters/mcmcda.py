@@ -168,12 +168,62 @@ class MCMCDA(Filter):
         """
         p = np.zeros(len(Omega))
         pd = self.pd
-        for i, omega in enumerate(Omega):
+        for i, part in enumerate(zip(Omega, weights)):
+            omega, w = part
             o = len(omega)  # size of partition |w|
-            w = np.array([w for u, v, w in omega])  # weights Pv(u|y1:t-1)
+            # w = np.array([w for u, v, w in omega])  # weights Pv(u|y1:t-1)
             p[i] = self.lambda_f**(N-o) * pd**o * (1-pd)**(self.K-o) * np.prod(w)
         p /= np.sum(p)
         return p
+
+    def mcmc(self, G, Omega, p_omega):
+        N = G.nu
+        beta = np.zeros((N, self.K))
+        omega = random.sample(Omega, 1)[0]
+        for n in range(self.n_mc):
+            omega = self.mcmc_single_step(Omega, omega, p_omega, N)
+            if n > self.n_bi:  # Burn in period
+                for j, k in omega:
+                    beta[j, k] += 1/(self.n_mc - self.n_bi)
+
+    def mcmc_single_step(self, Omega, omega, p_omega, N):
+        z = np.random.uniform()
+        E = set(itertools.product(range(N), range(self.K)))
+        if z < 0:
+            omega_ = omega.copy()
+        else:
+            e = random.sample(E,1)[0]
+            u_set = set(filter(lambda x: x[0] == e[0], omega))
+            v_set = set(filter(lambda x: x[1] == e[1], omega))
+            if e in omega:
+                omega_ = omega - {e}
+            elif bool(u_set) + bool(v_set) == 0:
+                omega_ = omega | {e}
+            elif bool(u_set) + bool(v_set) == 1:
+                e_ = u_set | v_set
+                assert len(e_)
+                omega_ = (omega | {e}) - e_
+            else:
+                omega_ = omega.copy()
+
+        if omega_ in Omega:
+            pi = p_omega[Omega.index(omega_)]
+            pi_ = p_omega[Omega.index(omega)]
+            A = min(1, pi_/pi)
+            p = np.random.binomial(1, A)
+            if p:
+                return omega_
+            else:
+                return omega
+        else:
+            return omega
+
+    def get_params(self):
+        return {'mu': self.mu, 'sigma': self.sigma}
+
+    def reset(self):
+        self.mu = self.mu0.copy()
+        self.sigma = self.sigma0.copy()
 
 if __name__=="__main__":
     g = BiPartite(30, 20)
