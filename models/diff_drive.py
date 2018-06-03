@@ -32,7 +32,7 @@ class DiffDrive(Model):
     def prop_dynamics(self, x, u, noise=True):
         x_n = x.copy()
         v, om = u[0, :], u[1, :]
-        x, y, th = x
+        px, py, th = x
         x_n[0] += self.dt*v*np.cos(th)
         x_n[1] += self.dt*v*np.sin(th)
         x_n[2] += self.dt*om
