@@ -110,9 +110,9 @@ class MCMCDA(Filter):
         # Prediction
         mu_bar = self.mu.copy()
         sigma_bar = self.sigma.copy()
+        mu_bar = model.prop_dynamics(self.mu, u, noise=False)
         for k in range(self.K):
-            A_k = model.prop_dynamics(self.mu[:, k], u[:, k])
-            mu_bar[:, k] = model.prop_dynamics(self.mu[:, k], u[:, k])
+            A_k = model.A(self.mu[:, k], u[:, k])
             sigma_bar[:, :, k] = np.linalg.multi_dot([A_k, self.sigma[:, :, k], A_k.T]) + model.Q
 
         # Update
@@ -125,10 +125,10 @@ class MCMCDA(Filter):
             # Measurement Posterior
             sigma_k = sigma_bar[:, :, k]
             mu_y = C_k.dot(mu_bar[:, k])
-            sigma_y = C_k.dot(sigma_bar[:, :, k]).dot(C_k.T) + model.R
+            sigma_y = C_k.dot(sigma_k).dot(C_k.T) + self.R
 
             # Expected Measurement
-            yhat = model.get_measurement(mu_bar[:, k], noise=False)
+            yhat = model.get_measurement(mu_bar[:, k:k+1], noise=False).flatten()
 
             for j in range(N):
                 # Measurement Innovation
@@ -136,27 +136,30 @@ class MCMCDA(Filter):
                 innov = y - yhat
 
                 # Measurement Validation
-                p_y = multivariate_normal.pdf(y, mu_y, sigma_y)
+                p_y = multivariate_normal.pdf(y, yhat, sigma_y)
                 if p_y >= self.delta:
                     G.add_edge(j, k, p_y)
 
                 # Kalman Filter Update
                 K = sigma_k.dot(C_k.T).dot(np.linalg.inv(C_k.dot(sigma_k).dot(C_k.T) + model.R))
-                mu_update[:, j, k] = mu_k + K.dot*innov
+                mu_update[:, j, k] = mu_k + K.dot(innov)
                 sigma_update[:, :, j, k] = sigma_k - K.dot(C_k).dot(sigma_k)
 
         # Calculate the posterior of the partition
-        Omega = G.partitions()
-
+        Omega, weights = G.partitions()
+        if Omega is None:
+            print("No measurements passed the threshold")
+            return
+        p_omega = self.partition_posterior(Omega, weights, N)
 
         # MCMC Sample Betas
-        beta = np.zeros((N, self.K))
         # TODO: Implement the MCMC Sampling for the betas
+        self.mcmc(G, Omega, p_omega)
 
         # Projection Step
         # TODO: Figure out how to best project the GMM back to a single Gaussian
 
-    def partition_posterior(self, Omega, N):
+    def partition_posterior(self, Omega, weights, N):
         """
         Calculate posterior of the partition (Eq 26)
         :param Omega: set of partitions at the current time step
