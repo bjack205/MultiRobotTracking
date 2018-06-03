@@ -3,6 +3,7 @@ from filters import Filter
 from scipy.stats import multivariate_normal
 import matplotlib.pyplot as plt
 import itertools
+import random
 import timeit
 
 class BiPartite:
@@ -31,6 +32,8 @@ class BiPartite:
                  as a (u,v,w) tuple, where u and v are node indices and w is the weight.
         """
         edges = np.array(list(self.edges()))
+        if len(edges) == 0:
+            return None
         u_adj = [[tuple(lst) for lst in edges[edges[:, 0] == i, :].tolist()] + [None, ] for i in range(self.nu)]
         v_adj = [[tuple(lst) for lst in edges[edges[:, 1] == i, :].tolist()] + [None, ] for i in range(self.nv)]
         u_part = list(itertools.product(*u_adj))
@@ -41,6 +44,9 @@ class BiPartite:
         v_set = set(filter_None(v_part))
 
         part = u_set.intersection(v_set)
+        omega = [set([(j, k) for j, k, w in om]) for om in part]
+        weight = [[w for j, k, w in om] for om in part]
+
         if plot:
             for p in part:
                 if bool(p):
@@ -48,7 +54,7 @@ class BiPartite:
                     g.add_edges(p)
                     g.plot()
                     plt.show()
-        return part
+        return omega, weight
 
     def plot(self):
         x1 = 0
@@ -79,15 +85,21 @@ class MCMCDA(Filter):
             self.mu0 = np.zeros((self.n, self.K))  # Store K Gaussians
         else:
             self.mu0 = mu0
-            self.mu0 += np.random.randn(*self.mu0.shape)
         self.sigma0 = np.zeros((self.n, self.n, self.K))
 
         self.mu = self.mu0.copy()
         self.sigma = self.sigma0.copy()
 
-        self.delta = 0.3  # Measurement Validation Threshold
+        self.delta = 0.01  # Measurement Validation Threshold
         self.lambda_f = 0.1  # False alarm rate, per unit volum, per unit time
         self.pd = 0.9  # Detection probability
+
+        # MCMC Params
+        self.n_mc = 1000
+        self.n_bi = 0.2*self.n_mc
+
+        # Tuning Params
+        self.R = np.diag([1, 1])
 
     def update(self, u, z, model):
         N = z.shape[1]  # number of measurements
