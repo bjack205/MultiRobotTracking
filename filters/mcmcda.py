@@ -30,7 +30,14 @@ class BiPartite:
         :param plot: Boolean flag to display plots of the partitions
         :return: list of partitions. Each partition is an immutable set of edges, with edge represented
                  as a (u,v,w) tuple, where u and v are node indices and w is the weight.
+
+
+        Edges are 3-tuples (source, sink, weight)
+        Get neighbors for each of the measurements
+        Get neighbors for each of the targets
+        Take the intersection
         """
+        # get list of edges (non-zero entries) as list of tuples
         edges = np.array(list(self.edges()))
         if len(edges) == 0:
             return None
@@ -39,11 +46,15 @@ class BiPartite:
         u_part = list(itertools.product(*u_adj))
         v_part = list(itertools.product(*v_adj))
 
+        # obtain immutable sets
         filter_None = lambda part: map(lambda p: frozenset(filter(lambda x: x is not None, p)), part)
+        # throw away the None sets
         u_set = set(filter_None(u_part))
         v_set = set(filter_None(v_part))
 
         part = u_set.intersection(v_set)
+
+        # omega is all of your partitions. we will end up choosing just one
         omega = [set([(j, k) for j, k, w in om]) for om in part]
         weight = [[w for j, k, w in om] for om in part]
 
@@ -76,6 +87,19 @@ class BiPartite:
 class MCMCDA(Filter):
 
     def __init__(self, model, mu0=None):
+        """
+        n is state dimension
+        m is the measurement dimension
+
+        mu is initialized to zero if not passed in
+        delta is a meaningful hyperparameter (Eqn. 22)
+        lambda_f is the poission val
+        pd is the detection probability
+        n_mc is the number of Monte Carlo samples
+        n_bi is the burn-in length for MC mixing
+
+        R is a covariance window for the measurements
+        """
         super().__init__()
         self.K = 3        # number of targets
         self.n = model.n  # number of states for each target
@@ -102,6 +126,21 @@ class MCMCDA(Filter):
         self.R = np.diag([1, 1])
 
     def update(self, u, z, model):
+        """
+        N is number of validated measurements (all of measurements right now)
+        Construct the graph using all of these
+
+        Adjacency matrix:
+
+        meas \ targets   target1    target2     target3     target4     
+                meas 1   1          0           0  
+                meas 2
+                meas 3
+
+        K is num_targets
+        mu is (state_dim x K)    
+        u is (control_dim x K)
+        """
         N = z.shape[1]  # number of measurements
 
         # Construct Bi-partite Graph
@@ -118,12 +157,16 @@ class MCMCDA(Filter):
         # Update
         mu_update = np.zeros((self.n, N, self.K))
         sigma_update = np.zeros((self.n, self.n, N, self.K))
+
+        # loop over each target
         for k in range(self.K):
             C_k = model.C(mu_bar[:, k])
             mu_k = mu_bar[:, k]
 
             # Measurement Posterior
             sigma_k = sigma_bar[:, :, k]
+
+            # mu_y is never actually used
             mu_y = C_k.dot(mu_bar[:, k])
             sigma_y = C_k.dot(sigma_k).dot(C_k.T) + self.R
 
@@ -140,7 +183,7 @@ class MCMCDA(Filter):
                 if p_y >= self.delta:
                     G.add_edge(j, k, p_y)
 
-                # Kalman Filter Update
+                # Kalman Filter Update (Eqn. 23)
                 K = sigma_k.dot(C_k.T).dot(np.linalg.inv(C_k.dot(sigma_k).dot(C_k.T) + model.R))
                 mu_update[:, j, k] = mu_k + K.dot(innov)
                 sigma_update[:, :, j, k] = sigma_k - K.dot(C_k).dot(sigma_k)
@@ -165,6 +208,8 @@ class MCMCDA(Filter):
         :param Omega: set of partitions at the current time step
         :param N: number of measurements at the current time step
         :return: numpy array of normalized probabilities for each posterior
+
+        multiply weights -- P^k(u | y_{1:t-1} ), where u is current measurement -- 1:1
         """
         p = np.zeros(len(Omega))
         pd = self.pd
@@ -177,6 +222,10 @@ class MCMCDA(Filter):
         return p
 
     def mcmc(self, G, Omega, p_omega):
+        """
+        choose a random omega (partition)
+
+        """
         N = G.nu
         beta = np.zeros((N, self.K))
         omega = random.sample(Omega, 1)[0]
@@ -187,6 +236,12 @@ class MCMCDA(Filter):
                     beta[j, k] += 1/(self.n_mc - self.n_bi)
 
     def mcmc_single_step(self, Omega, omega, p_omega, N):
+        """
+        Randomly sample an edge "e" from all edges "E"
+
+        Omega is a list of "omega"s
+        omega is a list of tuples
+        """
         z = np.random.uniform()
         E = set(itertools.product(range(N), range(self.K)))
         if z < 0:
@@ -195,10 +250,16 @@ class MCMCDA(Filter):
             e = random.sample(E,1)[0]
             u_set = set(filter(lambda x: x[0] == e[0], omega))
             v_set = set(filter(lambda x: x[1] == e[1], omega))
+
+            # deletion move
             if e in omega:
                 omega_ = omega - {e}
+
+            # addition move
             elif bool(u_set) + bool(v_set) == 0:
                 omega_ = omega | {e}
+
+            # switch move
             elif bool(u_set) + bool(v_set) == 1:
                 e_ = u_set | v_set
                 assert len(e_)
