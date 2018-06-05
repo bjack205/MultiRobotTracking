@@ -130,11 +130,18 @@ class Arena:
         except AttributeError:
             pass
         plt.grid()
+        return self.fig, self.ax
 
-    def update_plot(self, mu=None, sigma=None):
+    def update_plot(self, mu=None, sigma=None, live=True):
         """
         Updates the plot (quickly)
         """
+        self.plot_traj(mu, sigma)
+        self.fig.canvas.draw()
+        self.fig.canvas.flush_events()
+        plt.pause(1e-10)
+
+    def plot_traj(self, mu=None, sigma=None):
         x,y,*_ = self.robots
         self.state_plot.set_data(x, y)
         if mu is not None:
@@ -148,13 +155,9 @@ class Arena:
                 for i in range(self.num_robots()):
                     ellipse = error_ellipse(mu_g[:2, i], sigma_g[2*i:2*i+2, 2*i:2*i+2])
                     self.ellipses[i].set_data(ellipse[0, :], ellipse[1, :])
-
         else:
             self.estimate_plot.set_data(x*0, y*0)
             self.ellipses.set_data(x*0, y*0)
-        self.fig.canvas.draw()
-        self.fig.canvas.flush_events()
-        plt.pause(1e-10)
 
 
 if __name__ == "__main__":

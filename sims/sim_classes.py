@@ -1,6 +1,9 @@
 import numpy as np
 import os
 import time as time_mod
+from matplotlib.animation import FuncAnimation, writers
+import matplotlib.pyplot as plt
+import imageio
 
 
 class Controller:
@@ -42,7 +45,7 @@ class Simulator:
         self.filter.update(u, z, self.arena.model)
         return x_n, u
 
-    def run_sim(self):
+    def run_sim(self, gif=None):
         tic = time_mod.time()
         self.reset()
         x = self.arena.initial_state
@@ -52,13 +55,19 @@ class Simulator:
         self.init_logs(len(time))
         self.arena.init_plot()
 
+        filenames = []
         for i, t in enumerate(time):
             self.log_data(x, u, i)
             x, u = self.step(x, t)
 
             if (t/self.sim_info) % 1 == 0:
                 print("Sim Time: {}/{} sec".format(np.round(t, 2), np.round(self.sim_time, 2)))
-                self.arena.update_plot(mu=self.get_mu(i), sigma=self.get_sigma(i))
+                if gif is None:
+                    self.arena.update_plot(mu=self.get_mu(i), sigma=self.get_sigma(i))
+                else:
+                    self.arena.plot_traj(mu=self.get_mu(i), sigma=self.get_sigma(i))
+                    filenames.append('./figs/%s%03i' % (gif, i))
+                    plt.savefig(filenames[-1])
 
         t_elapse = time_mod.time() - tic
         print("Simulation Finished in {} seconds".format(t_elapse))
@@ -67,6 +76,20 @@ class Simulator:
             self.logs['time'] = time
             np.savez(self.save_file, logs=self.logs)
             print("Data saved to %s.npz" % self.save_file)
+
+        if gif is not None:
+            self.save_gif(gif, filenames)
+
+    def save_gif(self, file, filenames=None):
+        if filenames is None:
+            filenames = np.sort(os.listdir('./figs'))
+
+        frames = []
+        for filename in filenames:
+            frames.append(imageio.imread(os.path.join('figs', filename)))
+            # os.remove(filename)
+        imageio.mimwrite(file + '.gif', frames, duration=self.sim_info)
+        print('.gif: COMPLETE')
 
     def get_mu(self, i):
         if 'mu' in self.logs:
