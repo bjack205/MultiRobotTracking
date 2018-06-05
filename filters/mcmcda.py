@@ -36,6 +36,7 @@ class BiPartite:
         Get neighbors for each of the measurements
         Get neighbors for each of the targets
         Take the intersection
+        No two edges in a partition can share a vertex!
         """
         # get list of edges (non-zero entries) as list of tuples
         edges = np.array(list(self.edges()))
@@ -124,6 +125,8 @@ class MCMCDA(Filter):
 
         # Tuning Params
         self.R = np.diag([1, 1])
+        self.beta = None
+
 
     def update(self, u, z, model):
         """
@@ -145,6 +148,10 @@ class MCMCDA(Filter):
 
         # Construct Bi-partite Graph
         G = BiPartite(N, self.K)
+
+        N = G.nu
+        # initialize beta values to zero
+        self.beta = np.zeros((N, self.K))
 
         # Prediction
         mu_bar = self.mu.copy()
@@ -226,14 +233,12 @@ class MCMCDA(Filter):
         choose a random omega (partition)
 
         """
-        N = G.nu
-        beta = np.zeros((N, self.K))
         omega = random.sample(Omega, 1)[0]
         for n in range(self.n_mc):
             omega = self.mcmc_single_step(Omega, omega, p_omega, N)
             if n > self.n_bi:  # Burn in period
                 for j, k in omega:
-                    beta[j, k] += 1/(self.n_mc - self.n_bi)
+                    self.beta[j, k] += 1/(self.n_mc - self.n_bi)
 
     def mcmc_single_step(self, Omega, omega, p_omega, N):
         """
@@ -244,6 +249,9 @@ class MCMCDA(Filter):
         """
         z = np.random.uniform()
         E = set(itertools.product(range(N), range(self.K)))
+
+        # this is the self-loop transition probability; 
+        # can be set to 0.5 for slower convergence
         if z < 0:
             omega_ = omega.copy()
         else:
