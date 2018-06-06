@@ -209,6 +209,18 @@ class MCMCDA(Filter):
         # Projection Step
         # TODO: Figure out how to best project the GMM back to a single Gaussian
 
+        for k in self.K:
+            # Eqn. 37 of https://pdfs.semanticscholar.org/8870/220a54bd82fe81ec015d62e1b6e112650bd9.pdf
+            # get a weighted average from all self.n measurements
+            self.mu[k] = np.mean( np.prod(self.betas[:,k]) * z )
+            # Eqn. 38 of https://pdfs.semanticscholar.org/8870/220a54bd82fe81ec015d62e1b6e112650bd9.pdf
+            sample_covars = z - np.tile(self.mu[k],(n,1))
+            # add the sample covariance
+            self.sigma[k] += np.prod( self.betas[:,k]) * sample_covars
+
+
+
+
     def partition_posterior(self, Omega, weights, N):
         """
         Calculate posterior of the partition (Eq 26)
