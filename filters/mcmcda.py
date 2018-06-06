@@ -54,9 +54,8 @@ class BiPartite:
         v_set = set(filter_None(v_part))
 
         part = u_set.intersection(v_set)
-
         # omega is all of your partitions. we will end up choosing just one
-        omega = [set([(j, k) for j, k, w in om]) for om in part]
+        omega = [[(j, k) for j, k, w in om] for om in part]
         weight = [[w for j, k, w in om] for om in part]
 
         if plot:
@@ -245,6 +244,7 @@ class MCMCDA(Filter):
         choose a random omega (partition)
 
         """
+        N = G.nu
         omega = random.sample(Omega, 1)[0]
         for n in range(self.n_mc):
             omega = self.mcmc_single_step(Omega, omega, p_omega, N)
