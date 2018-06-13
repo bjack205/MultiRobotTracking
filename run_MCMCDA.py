@@ -7,6 +7,58 @@ import matplotlib.pyplot as plt
 import sys
 import timeit
 
+def plots(logs):
+    # Extract from dictionary
+    time = logs['time']
+    state = logs['state']
+    mu = logs['mu']
+    sigma = logs['sigma']
+    N = len(state)
+    Ng = mu.shape[-1]
+    n = state.shape[1]
+    K = state.shape[2]
+
+    print(state.shape)
+    print(mu.shape)
+
+    # Trajectory Plots
+    plt.figure(figsize=(6, 6))
+    handles = []
+    for k in range(K):
+        x = state[:, 0, k]
+        y = state[:, 1, k]
+        real = plt.plot(x, y)[0]  # State Plot
+        mu_i = mu[:, :, k]
+        sigma_i = sigma[:, :2, :2, k]
+        est = plt.plot(mu_i[:, 0], mu_i[:, 1], 'k:')[0]   # Estimate Plot
+        for j in range(10, N, 100):
+            ellipse = error_ellipse(mu_i[j, :2], sigma_i[j, ...])
+            plt.plot(ellipse[0, :], ellipse[1, :], 'r', linewidth=0.75)
+        handles.append(real)
+    plt.grid()
+    plt.ylabel('x (m)')
+    plt.xlabel('x (m)')
+    plt.xlim([-10, 10])
+    plt.ylim([-10, 10])
+    plt.tight_layout()
+    handles.append(est)
+
+    lgnd = ['robot {}'.format(i+1) for i in range(K)]
+    lgnd.append('Estimate')
+    plt.legend(handles, lgnd)
+
+    # State Plot
+    state_labels = ['x (m)', 'y (m)', 'theta (rad)']
+    plt.figure()
+    for j in range(n):
+        plt.subplot(3, 1, j+1)
+        for k in range(K):
+            plt.plot(time, state[:, j, k], color='C' + str(k))
+            plt.plot(time, mu[:, j, k], '--', color='C' + str(k))
+        plt.grid()
+        plt.xlabel('time (sec)')
+        plt.ylabel(state_labels[j])
+
 if __name__ == '__main__':
     # Set Seed
     np.random.seed(1)
@@ -37,28 +89,43 @@ if __name__ == '__main__':
         model.meas_model['range'] = 1
         model.meas_model['bearing'] = 0
         model.meas_model['position'] = 0
+        model.R_diag = 0.01
         model.reset()
         arena = Arena(model)
+        # arena.del_robot(0)
+        # arena.del_robot(0)
+        arena.add_robot([-4, -2, 0], lambda t: [t, t])
+        arena.add_robot([3, -2, 0], lambda t: [np.sin(t) + 0.4, np.cos(t)])
+        # arena.add_robot([-3, 4, 0], lambda t: [0.5, -.3])
+        # arena.add_robot([5, -6, 0], lambda t: [0.5, -.3])
+        # arena.add_robot([5, 6, 0], lambda t: [0.5, -.3])
+        # arena.add_robot([-6, 6, 0], lambda t: [np.sin(t) + 0.4, np.cos(t)])
+        # arena.add_robot([0, -6, 0], lambda t: [np.sin(t) - 0.4, np.cos(t)])
+        arena.initial_state = arena.robots  # Keeps added robots in the area after reset
+        arena.drop_rate = np.ones(arena.num_robots())*0
         mu0 = arena.robots
     arena.reset()
 
     # Initial Filter
     filter = MCMCDA(model, mu0)
+    filter.delta = 0.1
+    filter.R = np.diag([1, 1])*0.5
     filter.reset()
 
     # Test Filter
     z = arena.get_measurements(0)
     u = arena.get_controls(0)
-    print(timeit.timeit(lambda: filter.update(u, z, model), number=1))
+    # print(timeit.timeit(lambda: filter.update(u, z, model), number=1))
 
+    # sys.exit(0)
 
-
-    sys.exit(0)
     # Initialize Simulator
+    gif = 'MCMC_' + str(arena.num_robots())
+    # gif = None
     sim = Simulator(arena, filter)
-    sim.sim_time = 25
+    sim.sim_time = 5
     sim.sim_info = 0.1
-    sim.run_sim()
+    # sim.run_sim(gif=gif)
     # sim.gen_plots()
 
     # Plotting

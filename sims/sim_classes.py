@@ -66,7 +66,7 @@ class Simulator:
                     self.arena.update_plot(mu=self.get_mu(i), sigma=self.get_sigma(i))
                 else:
                     self.arena.plot_traj(mu=self.get_mu(i), sigma=self.get_sigma(i))
-                    filenames.append('./figs/%s%03i' % (gif, i))
+                    filenames.append('./figs/%s_%03i.png' % (gif, i))
                     plt.savefig(filenames[-1])
 
         t_elapse = time_mod.time() - tic
@@ -83,10 +83,11 @@ class Simulator:
     def save_gif(self, file, filenames=None):
         if filenames is None:
             filenames = np.sort(os.listdir('./figs'))
+            filenames = [os.path.join('figs', name) for name in filenames]
 
         frames = []
         for filename in filenames:
-            frames.append(imageio.imread(os.path.join('figs', filename)))
+            frames.append(imageio.imread(os.path.join(filename)))
             # os.remove(filename)
         imageio.mimwrite(file + '.gif', frames, duration=self.sim_info)
         print('.gif: COMPLETE')
