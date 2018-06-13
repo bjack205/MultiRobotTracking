@@ -41,7 +41,7 @@ class BiPartite:
         # get list of edges (non-zero entries) as list of tuples
         edges = np.array(list(self.edges()))
         if len(edges) == 0:
-            return None
+            return None, None
         u_adj = [[tuple(lst) for lst in edges[edges[:, 0] == i, :].tolist()] + [None, ] for i in range(self.nu)]
         v_adj = [[tuple(lst) for lst in edges[edges[:, 1] == i, :].tolist()] + [None, ] for i in range(self.nv)]
         u_part = list(itertools.product(*u_adj))
@@ -54,9 +54,10 @@ class BiPartite:
         v_set = set(filter_None(v_part))
 
         part = u_set.intersection(v_set)
-        # omega is all of your partitions. we will end up choosing just one
-        omega = [[(j, k) for j, k, w in om] for om in part]
-        weight = [[w for j, k, w in om] for om in part]
+        # omega is all of your partitions. It is a list of sets of (u,v) tuples
+        omega = [set([(j, k) for j, k, w in om]) for om in part]
+        # weighted is a list of sets of (u,v,w) tuples to calculate the partition posterior
+        weighted = part  # [[w for j, k, w in om] for om in part]
 
         if plot:
             for p in part:
@@ -65,7 +66,7 @@ class BiPartite:
                     g.add_edges(p)
                     g.plot()
                     plt.show()
-        return omega, weight
+        return omega, weighted
 
     def plot(self):
         x1 = 0
@@ -86,7 +87,7 @@ class BiPartite:
 
 class MCMCDA(Filter):
 
-    def __init__(self, model, mu0=None):
+    def __init__(self, model, mu0):
         """
         n is state dimension
         m is the measurement dimension
@@ -101,29 +102,28 @@ class MCMCDA(Filter):
         R is a covariance window for the measurements
         """
         super().__init__()
-        self.K = 3        # number of targets
+        self.K = mu0.shape[1]        # number of targets
         self.n = model.n  # number of states for each target
         self.m = model.m  # number of measurements for each target
 
-        if mu0 is None:
-            self.mu0 = np.zeros((self.n, self.K))  # Store K Gaussians
-        else:
-            self.mu0 = mu0
+        self.mu0 = mu0
         self.sigma0 = np.zeros((self.n, self.n, self.K))
+        for i in range(self.K):
+            self.sigma0[:, :, i] = np.eye(self.n)
 
         self.mu = self.mu0.copy()
         self.sigma = self.sigma0.copy()
 
-        self.delta = 0.01  # Measurement Validation Threshold
-        self.lambda_f = 0.1  # False alarm rate, per unit volum, per unit time
-        self.pd = 0.9  # Detection probability
+        self.delta = 0.05  # Measurement Validation Threshold
+        self.lambda_f = 0  # False alarm rate, per unit volum, per unit time
+        self.pd = 1  # Detection probability
 
         # MCMC Params
         self.n_mc = 1000
         self.n_bi = 0.2*self.n_mc
 
         # Tuning Params
-        self.R = np.diag([1, 1])
+        self.R = np.diag([1, 1])*0.5
         self.beta = None
 
 
@@ -195,11 +195,12 @@ class MCMCDA(Filter):
                 sigma_update[:, :, j, k] = sigma_k - K.dot(C_k).dot(sigma_k)
 
         # Calculate the posterior of the partition
-        Omega, weights = G.partitions()
+        # print(G.A)
+        Omega, weighted = G.partitions()
         if Omega is None:
             print("No measurements passed the threshold")
             return
-        p_omega = self.partition_posterior(Omega, weights, N)
+        p_omega = self.partition_posterior(weighted, N)
 
         # MCMC Sample Betas
         # TODO: Implement the MCMC Sampling for the betas
@@ -207,20 +208,35 @@ class MCMCDA(Filter):
 
         # Projection Step
         # TODO: Figure out how to best project the GMM back to a single Gaussian
+        mean_projection = False
+        for k in range(self.K):
+            if mean_projection:
+                # Eqn. 37 of https://pdfs.semanticscholar.org/8870/220a54bd82fe81ec015d62e1b6e112650bd9.pdf
+                # get a weighted average from all self.n measurements
+                if np.sum(self.beta[:, k]) == 0:  # If no measurements were validated, return the prediction
+                    self.mu[:, k] = mu_bar[:, k]
+                    self.sigma[:, :, k] = sigma_bar[:, :, k]
+                    continue
+                beta_k = self.beta[:, k] / np.sum(self.beta[:, k])
+                self.mu[:, k] = np.sum(beta_k * mu_update[:, :, k], axis=1)
 
-        for k in self.K:
-            # Eqn. 37 of https://pdfs.semanticscholar.org/8870/220a54bd82fe81ec015d62e1b6e112650bd9.pdf
-            # get a weighted average from all self.n measurements
-            self.mu[k] = np.mean( np.prod(self.betas[:,k]) * z )
-            # Eqn. 38 of https://pdfs.semanticscholar.org/8870/220a54bd82fe81ec015d62e1b6e112650bd9.pdf
-            sample_covars = z - np.tile(self.mu[k],(n,1))
-            # add the sample covariance
-            self.sigma[k] += np.prod( self.betas[:,k]) * sample_covars
+                # Eqn. 38 of https://pdfs.semanticscholar.org/8870/220a54bd82fe81ec015d62e1b6e112650bd9.pdf
+                sigma = np.zeros((self.n, self.n))
+                for j in range(N):
+                    mu_diff = mu_update[:, j, k] - self.mu[j, k]
+                    sigma += beta_k[j]*(sigma_update[:, :, j, k] + np.outer(mu_diff, mu_diff))
+                if np.any(np.isnan(sigma)):
+                    a = 1
+                self.sigma[:, :, k] = sigma
+                # sample_covars = mu_update[:, :, k] - np.tile(self.mu[k],(n,1))
+                # add the sample covariance
+                # self.sigma[:, :, k] += np.prod(self.beta[:,k]) * sample_covars
+            else:
+                ind_max = np.argmax(self.beta[:, k])
+                self.mu[:, k] = mu_update[:, ind_max, k]
+                self.sigma[:, :, k] = sigma_update[:, :, ind_max, k]
 
-
-
-
-    def partition_posterior(self, Omega, weights, N):
+    def partition_posterior(self, weighted, N):
         """
         Calculate posterior of the partition (Eq 26)
         :param Omega: set of partitions at the current time step
@@ -229,10 +245,10 @@ class MCMCDA(Filter):
 
         multiply weights -- P^k(u | y_{1:t-1} ), where u is current measurement -- 1:1
         """
-        p = np.zeros(len(Omega))
+        p = np.zeros(len(weighted))
         pd = self.pd
-        for i, part in enumerate(zip(Omega, weights)):
-            omega, w = part
+        for i, omega in enumerate(weighted):
+            w = [w for u,v,w in omega]
             o = len(omega)  # size of partition |w|
             # w = np.array([w for u, v, w in omega])  # weights Pv(u|y1:t-1)
             p[i] = self.lambda_f**(N-o) * pd**o * (1-pd)**(self.K-o) * np.prod(w)
@@ -250,7 +266,7 @@ class MCMCDA(Filter):
             omega = self.mcmc_single_step(Omega, omega, p_omega, N)
             if n > self.n_bi:  # Burn in period
                 for j, k in omega:
-                    self.beta[j, k] += 1/(self.n_mc - self.n_bi)
+                    self.beta[int(j), int(k)] += 1/(self.n_mc - self.n_bi)
 
     def mcmc_single_step(self, Omega, omega, p_omega, N):
         """
@@ -307,7 +323,7 @@ class MCMCDA(Filter):
         self.sigma = self.sigma0.copy()
 
 if __name__=="__main__":
-    g = BiPartite(30, 20)
+    g = BiPartite(3, 2)
     g.add_edge(0, 0)
     g.add_edge(0, 1)
     g.add_edge(2, 0)

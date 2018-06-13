@@ -12,21 +12,19 @@ def is_psd(A):
 
 class MHKF(Filter):
 
-    def __init__(self, model, mu0=None):
+    def __init__(self, model, mu0):
         super().__init__()
-        self.K = 3  # number of robots
+        self.K = len(mu0) // model.n  # number of robots
+        print("Number of robots: {}".format(self.K))
         self.n = model.n*self.K  # number of states
         self.m = model.m*self.K  # number of measurements
         self.Ng = 3  # Number of Gaussians to keep
         self.L = factorial(self.K)
-        self.M = 1
+        self.M = 1  #factorial(self.K)
 
-        if mu0 is None:
-            self.mu0 = np.zeros((self.n, self.Ng))
-        else:
-            self.mu0 = np.repeat(mu0, self.K, 1)
-            self.mu0 += np.random.randn(*self.mu0.shape)
-        self.sigma0 = np.repeat(np.eye(self.n)[:, :, np.newaxis], self.K, axis=2)
+        self.mu0 = np.repeat(mu0, self.Ng, 1)
+        self.mu0 += np.random.randn(*self.mu0.shape)
+        self.sigma0 = np.repeat(np.eye(self.n)[:, :, np.newaxis], self.Ng, axis=2)
         self.alpha0 = np.ones(self.Ng)/self.Ng
 
         self.mu = self.mu0.copy()
@@ -46,14 +44,18 @@ class MHKF(Filter):
         alpha_t1t = np.zeros(self.M*self.Ng)
 
         for i in range(self.Ng):
+            perm = list(itertools.permutations(range(self.K)))
             for j in range(self.M):
                 k = i*self.M + j
-                mu_i = self.mu[:, i].reshape(-1, model.n).T
-                A_ij = [model.A(mu_i[:, k], u[:, k]) for k in range(self.K)]
-                A_ij = block_diag(*A_ij)
-                Q = block_diag(model.Q, model.Q, model.Q)
+                # Permute
+                u_ = u[:, perm[j]]
 
-                mu_t1t[:, k] = model.prop_dynamics(mu_i, u, noise=False).T.flatten()
+                mu_i = self.mu[:, i].reshape(-1, model.n).T
+                A_ij = [model.A(mu_i[:, k], u_[:, k]) for k in range(self.K)]
+                A_ij = block_diag(*A_ij)
+                Q = block_diag(*[model.Q]*self.K)
+
+                mu_t1t[:, k] = model.prop_dynamics(mu_i, u_, noise=False).T.flatten()
                 sigma_t1t[:, :, k] = np.linalg.multi_dot([A_ij, self.sigma[:, :, i], A_ij.T]) + Q
                 alpha_t1t[k] = self.beta[j] * self.alpha[i]
         MN = self.M*self.Ng
@@ -96,7 +98,7 @@ class MHKF(Filter):
                 sigma_t1t1[:, :, i] = sigma_k - K.dot(C_j).dot(sigma_k)
 
                 # Measurement posterior
-                mu_y = C_j.dot(mu_k)
+                mu_y = yhat_j  # C_j.dot(mu_k)
                 sigma_y = C_j.dot(sigma_k).dot(C_j.T) + R
                 p_y = multivariate_normal.pdf(y, mu_y, sigma_y)
 
@@ -110,6 +112,7 @@ class MHKF(Filter):
         self.sigma = sigma_t1t1[:, :, sort_inds]
         self.alpha = alpha_t1t1[sort_inds]
         self.alpha /= np.sum(self.alpha)
+        # print(self.alpha)
         # print(self.sigma[:3, :3, -1])
 
     def get_params(self):
