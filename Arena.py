@@ -144,20 +144,32 @@ class Arena:
     def plot_traj(self, mu=None, sigma=None):
         x,y,*_ = self.robots
         self.state_plot.set_data(x, y)
+        n = self.model.n
+        K = self.num_robots()
         if mu is not None:
-            g = -1
-            mu_g = mu[:, g]
-            mu_g = mu_g.reshape(-1, self.model.n).T
+            if mu.shape[1] == K:  # MCMC
+                mu_g = mu
+                sigma_g = sigma
+            else:
+                g = -1
+                mu_g = mu[:, g]
+                mu_g = mu_g.reshape(-1, self.model.n).T
+                sigma_g = np.zeros((n, n, K))
+                for i in range(K):
+                    sigma_g[:, :, i] = sigma[2*i:2*i+2, 2*i:2*i+2, g]
+
             mu_x, mu_y, *_ = mu_g
             self.estimate_plot.set_data(mu_x, mu_y)
             if sigma is not None:
-                sigma_g = sigma[:, :, g]
+
                 for i in range(self.num_robots()):
-                    ellipse = error_ellipse(mu_g[:2, i], sigma_g[2*i:2*i+2, 2*i:2*i+2])
+                    pass
+                    ellipse = error_ellipse(mu_g[:2, i], sigma_g[:2, :2, i])
                     self.ellipses[i].set_data(ellipse[0, :], ellipse[1, :])
         else:
             self.estimate_plot.set_data(x*0, y*0)
-            self.ellipses.set_data(x*0, y*0)
+            for i in range(self.num_robots()):
+                self.ellipses[i].set_data(x*0, y*0)
 
 
 if __name__ == "__main__":
