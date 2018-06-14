@@ -3,7 +3,7 @@ from models import Model, DiffDrive
 import matplotlib.pyplot as plt
 from sims.sim_classes import error_ellipse
 import pickle
-
+import pdb
 
 class Arena:
     """
@@ -34,6 +34,8 @@ class Arena:
         self.model = model
 
         self.initial_state = self.robots.copy()
+
+        self.errors = []
 
     def num_robots(self):
         return self.robots.shape[1]
@@ -157,6 +159,13 @@ class Arena:
                 sigma_g = np.zeros((n, n, K))
                 for i in range(K):
                     sigma_g[:, :, i] = sigma[2*i:2*i+2, 2*i:2*i+2, g]
+
+            axis_diff = self.robots[0:2]  - mu_g[0:2]
+            euclid_diff = np.linalg.norm(axis_diff,axis=0)
+
+            # the true state is self.robots
+            # the predicted state is mu_g
+            self.errors += [ np.sum(euclid_diff) ]
 
             mu_x, mu_y, *_ = mu_g
             self.estimate_plot.set_data(mu_x, mu_y)

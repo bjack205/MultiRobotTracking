@@ -61,74 +61,92 @@ def plots(logs):
 
 if __name__ == '__main__':
     # Set Seed
-    np.random.seed(1)
+    avg_errs = []
+    NUM_TRIALS = 10
+    FILTER_TYPE = 'MCMCDA'
+    for _ in range(NUM_TRIALS):
+        np.random.seed(1)
 
-    # Initial State
-    robots = np.array([[0., 0.],
-                       [1., 0.],
-                       [0., 1.]]).T
+        # Initial State
+        robots = np.array([[0., 0.],
+                           [1., 0.],
+                           [0., 1.]]).T
 
-    control_laws = [lambda t: np.array([np.cos(0.1 * t), np.sin(0.1 * t)]),
-                    lambda t: np.array([-np.cos(0.2 * t), np.sin(0.2 * t)]),
-                    lambda t: np.array([np.cos(0.1 * t), np.sin(0.2 * t)])]
+        control_laws = [lambda t: np.array([np.cos(0.1 * t), np.sin(0.1 * t)]),
+                        lambda t: np.array([-np.cos(0.2 * t), np.sin(0.2 * t)]),
+                        lambda t: np.array([np.cos(0.1 * t), np.sin(0.2 * t)])]
 
-    drop_rate = [0.0, 0.0, 0.0]
+        drop_rate = [0.0, 0.0, 0.0]
 
-    # Set up Arena
-    dt = 1e-2
-    simple = 0
-    if simple:
-        model = SimpleModel(dt=dt)
-        arena = Arena(model)
-        arena.initial_state = robots
-        arena.control_laws = control_laws
-        arena.drop_rate = drop_rate
-        mu0 = robots
-    else:
-        model = DiffDrive(dt=dt)
-        model.meas_model['range'] = 1
-        model.meas_model['bearing'] = 0
-        model.meas_model['position'] = 0
-        model.R_diag = 0.01
-        model.reset()
-        arena = Arena(model)
-        # arena.del_robot(0)
-        # arena.del_robot(0)
-        arena.add_robot([-4, -2, 0], lambda t: [t, t])
-        arena.add_robot([3, -2, 0], lambda t: [np.sin(t) + 0.4, np.cos(t)])
-        # arena.add_robot([-3, 4, 0], lambda t: [0.5, -.3])
-        # arena.add_robot([5, -6, 0], lambda t: [0.5, -.3])
-        # arena.add_robot([5, 6, 0], lambda t: [0.5, -.3])
-        # arena.add_robot([-6, 6, 0], lambda t: [np.sin(t) + 0.4, np.cos(t)])
-        # arena.add_robot([0, -6, 0], lambda t: [np.sin(t) - 0.4, np.cos(t)])
-        arena.initial_state = arena.robots  # Keeps added robots in the area after reset
-        arena.drop_rate = np.ones(arena.num_robots())*0
-        mu0 = arena.robots
-    arena.reset()
+        # Set up Arena
+        dt = 1e-2
+        simple = 0
+        if simple:
+            model = SimpleModel(dt=dt)
+            arena = Arena(model)
+            arena.initial_state = robots
+            arena.control_laws = control_laws
+            arena.drop_rate = drop_rate
+            mu0 = robots
+        else:
+            model = DiffDrive(dt=dt)
+            model.meas_model['range'] = 1
+            model.meas_model['bearing'] = 0
+            model.meas_model['position'] = 0
+            model.R_diag = 0.01
+            model.reset()
+            arena = Arena(model)
+            # arena.del_robot(0)
+            # arena.del_robot(0)
+            arena.add_robot([-4, -2, 0], lambda t: [t, t])
+            #arena.add_robot([3, -2, 0], lambda t: [np.sin(t) + 0.4, np.cos(t)])
+            # arena.add_robot([-3, 4, 0], lambda t: [0.5, -.3])
+            # arena.add_robot([5, -6, 0], lambda t: [0.5, -.3])
+            # arena.add_robot([5, 6, 0], lambda t: [0.5, -.3])
+            # arena.add_robot([-6, 6, 0], lambda t: [np.sin(t) + 0.4, np.cos(t)])
+            # arena.add_robot([0, -6, 0], lambda t: [np.sin(t) - 0.4, np.cos(t)])
+            arena.initial_state = arena.robots  # Keeps added robots in the area after reset
+            arena.drop_rate = np.ones(arena.num_robots())*0
+            if FILTER_TYPE == 'MHKF':
+                mu0 = arena.robots.T.reshape(-1, 1)
+            else:
+                mu0 = arena.robots
+        arena.reset()
 
-    # Initial Filter
-    filter = MCMCDA(model, mu0)
-    filter.delta = 0.1
-    filter.R = np.diag([1, 1])*0.5
-    filter.reset()
+        # Initial Filter
+        if FILTER_TYPE == 'MCMCDA':
 
-    # Test Filter
-    z = arena.get_measurements(0)
-    u = arena.get_controls(0)
-    # print(timeit.timeit(lambda: filter.update(u, z, model), number=1))
+            filter = MCMCDA(model, mu0)
+        elif FILTER_TYPE == 'MHKF':
+            filter = MHKF(model, mu0)
+        filter.delta = 0.1
+        filter.R = np.diag([1, 1])*0.1
+        filter.reset()
 
-    # sys.exit(0)
+        # Test Filter
+        z = arena.get_measurements(0)
+        u = arena.get_controls(0)
+        # print(timeit.timeit(lambda: filter.update(u, z, model), number=1))
 
-    # Initialize Simulator
-    gif = 'MCMC_' + str(arena.num_robots())
-    # gif = None
-    sim = Simulator(arena, filter)
-    sim.sim_time = 5
-    sim.sim_info = 0.1
-    # sim.run_sim(gif=gif)
-    # sim.gen_plots()
+        # sys.exit(0)
 
-    # Plotting
-    logs = sim.get_logs()
-    plots(logs)
-    plt.show()
+        # Initialize Simulator
+        gif = 'MCMC_' + str(arena.num_robots())
+        # gif = None
+        sim = Simulator(arena, filter)
+        sim.sim_time = 10
+        sim.sim_info = 0.1
+        sim.run_sim(gif=None) # gif)
+        # sim.gen_plots()
+        num_timesteps = np.arange(0, sim.sim_time + sim.dt, sim.dt).shape[0]
+        avg_err = np.sum(sim.arena.errors)/ num_timesteps
+        print( 'Error per timestep: ', avg_err )
+        avg_errs += [avg_err]
+
+        # Plotting
+        #logs = sim.get_logs()
+        #plots(logs)
+        #plt.show()
+
+    print(avg_errs)
+    print('Average over ', NUM_TRIALS, "trials = ", np.mean(np.array(avg_errs)) )
